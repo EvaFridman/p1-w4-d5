@@ -1,6 +1,7 @@
 const viewingsRepo = require('../repositories/viewingsRepository');
 const listingsRepo = require('../repositories/listingsRepository');
 const mailService = require('./mailService');
+const { canTransition } = require('./pure/viewingStatusTransitions');
 const { NotFoundError, ConflictError } = require('../errors/AppError');
 const defaultLogger = require('../../logger');
 
@@ -26,7 +27,6 @@ async function createViewing(listingId, data, log = defaultLogger) {
         log.info({ viewingId: viewing.id }, 'Agent notified about new viewing request');
     } catch (err) {
         log.error({ err, viewingId: viewing.id }, 'Failed to notify agent about new viewing');
-        throw new ExternalServiceError('Failed to send email');
     }
 
     return viewing;
@@ -35,6 +35,14 @@ async function createViewing(listingId, data, log = defaultLogger) {
 async function changeStatus(id, newStatus, log = defaultLogger) {
     const viewing = await viewingsRepo.findViewingById(id);
     if (!viewing) throw new NotFoundError('Viewing not found');
+
+    if (!canTransition(viewing.status, newStatus)) {
+        log.warn(
+            { viewingId: id, from: viewing.status, to: newStatus },
+            'Rejected viewing status transition'
+        );
+        throw new ConflictError(`Cannot change status from "${viewing.status}" to "${newStatus}"`);
+    }
 
     const updated = await viewingsRepo.updateViewingStatus(id, newStatus);
 

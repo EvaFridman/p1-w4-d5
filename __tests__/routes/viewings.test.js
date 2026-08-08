@@ -30,7 +30,7 @@ describe('Viewings API (with mocked repos)', () => {
                 .expect(201);
 
             expect(res.body.data.id).toBe(1);
-            expect(viewingsRepo.createViewing).toHaveBeenCalledWith(1, expect.objectContaining({...validPayload, preferredAt: expect.any(Date)}));
+            expect(viewingsRepo.createViewing).toHaveBeenCalledWith(1, expect.objectContaining({ ...validPayload, preferredAt: expect.any(Date) }));
         });
 
         it('should return 409 if listing is not published', async () => {
@@ -58,7 +58,7 @@ describe('Viewings API (with mocked repos)', () => {
 
     describe('PATCH /viewings/:id/status', () => {
         it('should change status', async () => {
-            const viewing = { id: 1, status: 'created' };
+            const viewing = { id: 1, status: 'pending approval' };
             const updated = { ...viewing, status: 'approved' };
             viewingsRepo.findViewingById.mockResolvedValue(viewing);
             viewingsRepo.updateViewingStatus.mockResolvedValue(updated);
@@ -70,6 +70,20 @@ describe('Viewings API (with mocked repos)', () => {
 
             expect(res.body.data.status).toBe('approved');
             expect(viewingsRepo.updateViewingStatus).toHaveBeenCalledWith(1, 'approved');
+        });
+
+        it('should return 409 on a forbidden status transition', async () => {
+            const viewing = { id: 1, status: 'created' };
+            viewingsRepo.findViewingById.mockResolvedValue(viewing);
+
+            const res = await request(app)
+                .patch('/viewings/1/status')
+                .send({ status: 'approved' })
+                .expect(409);
+
+            expect(res.body.data).toBeNull();
+            expect(res.body.error).not.toBeNull();
+            expect(viewingsRepo.updateViewingStatus).not.toHaveBeenCalled();
         });
 
         it('should return 422 for invalid status and not call service', async () => {

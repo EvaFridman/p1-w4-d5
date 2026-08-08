@@ -75,13 +75,30 @@ describe('viewingsService', () => {
     });
 
     describe('changeStatus', () => {
-        const viewing = { id: 1, listing: { id: 1, title: 'Test' }, clientEmail: 'client@test.com', preferredAt: new Date() };
+        const viewing = {
+            id: 1,
+            status: 'pending approval',
+            listing: { id: 1, title: 'Test' },
+            clientEmail: 'client@test.com',
+            preferredAt: new Date(),
+        };
         const updated = { ...viewing, status: 'approved' };
 
         it('should throw NotFoundError if viewing not found', async () => {
             viewingsRepo.findViewingById.mockResolvedValue(null);
-            await expect(viewingsService.changeStatus(1, 'approved', { info: jest.fn(), error: jest.fn() }))
+            await expect(viewingsService.changeStatus(1, 'approved', { info: jest.fn(), warn: jest.fn(), error: jest.fn() }))
                 .rejects.toThrow(NotFoundError);
+        });
+
+        it('should throw ConflictError on a forbidden transition and log a warning', async () => {
+            const closedViewing = { ...viewing, status: 'closed' };
+            viewingsRepo.findViewingById.mockResolvedValue(closedViewing);
+            const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+
+            await expect(viewingsService.changeStatus(1, 'approved', log))
+                .rejects.toThrow(ConflictError);
+            expect(viewingsRepo.updateViewingStatus).not.toHaveBeenCalled();
+            expect(log.warn).toHaveBeenCalled();
         });
 
         it('should update status and send confirmation if status is approved', async () => {
@@ -89,7 +106,7 @@ describe('viewingsService', () => {
             viewingsRepo.updateViewingStatus.mockResolvedValue(updated);
             mailService.sendViewingConfirmation.mockResolvedValue();
 
-            const result = await viewingsService.changeStatus(1, 'approved', { info: jest.fn(), error: jest.fn() });
+            const result = await viewingsService.changeStatus(1, 'approved', { info: jest.fn(), warn: jest.fn(), error: jest.fn() });
             expect(result).toEqual(updated);
             expect(viewingsRepo.updateViewingStatus).toHaveBeenCalledWith(1, 'approved');
             expect(mailService.sendViewingConfirmation).toHaveBeenCalledWith(viewing.listing, updated);
@@ -99,8 +116,8 @@ describe('viewingsService', () => {
             viewingsRepo.findViewingById.mockResolvedValue(viewing);
             viewingsRepo.updateViewingStatus.mockResolvedValue({ ...updated, status: 'rejected' });
             mailService.sendViewingConfirmation.mockResolvedValue();
-
-            const result = await viewingsService.changeStatus(1, 'rejected', { info: jest.fn(), error: jest.fn() });
+            
+            const result = await viewingsService.changeStatus(1, 'rejected', { info: jest.fn(), warn: jest.fn(), error: jest.fn() });
             expect(result.status).toBe('rejected');
             expect(mailService.sendViewingConfirmation).not.toHaveBeenCalled();
         });
@@ -109,7 +126,7 @@ describe('viewingsService', () => {
             viewingsRepo.findViewingById.mockResolvedValue(viewing);
             viewingsRepo.updateViewingStatus.mockResolvedValue(updated);
             mailService.sendViewingConfirmation.mockRejectedValue(new Error('Mail error'));
-            const log = { info: jest.fn(), error: jest.fn() };
+            const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
             const result = await viewingsService.changeStatus(1, 'approved', log);
             expect(result).toEqual(updated);
